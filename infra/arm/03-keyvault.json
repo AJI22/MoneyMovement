@@ -1,0 +1,94 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": { "type": "string" },
+    "location": { "type": "string", "defaultValue": "[resourceGroup().location]" },
+    "keyVaultName": { "type": "string" },
+    "azureDevOpsPrincipalId": { "type": "string", "defaultValue": "00000000-0000-0000-0000-000000000000" },
+    "POSTGRES_PASSWORD": { "type": "secureString", "defaultValue": "PLACEHOLDER_CHANGE_ME" },
+    "SERVICEBUS_CONNECTION_STRING": { "type": "secureString", "defaultValue": "PLACEHOLDER_Endpoint=sb://placeholder.servicebus.windows.net/;SharedAccessKeyName=placeholder;SharedAccessKey=placeholder" },
+    "ACR_PASSWORD": { "type": "secureString", "defaultValue": "PLACEHOLDER_CHANGE_ME" },
+    "TIGERBEETLE_ENDPOINT": { "type": "string", "defaultValue": "PLACEHOLDER_10.0.0.4:3000" },
+    "TEMPORAL_ENDPOINT": { "type": "string", "defaultValue": "PLACEHOLDER_temporal-server:7233" }
+  },
+  "variables": {
+    "uaiName": "[concat('uai-mm-', parameters('environmentName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[variables('uaiName')]",
+      "location": "[parameters('location')]"
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2023-07-01",
+      "name": "[parameters('keyVaultName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": { "family": "A", "name": "standard" },
+        "tenantId": "[subscription().tenantId]",
+        "enabledForDeployment": false,
+        "enabledForTemplateDeployment": true,
+        "enabledForDiskEncryption": false,
+        "enableRbacAuthorization": false,
+        "accessPolicies": [
+          {
+            "objectId": "[reference(variables('uaiName')).principalId]",
+            "tenantId": "[subscription().tenantId]",
+            "permissions": { "secrets": ["get", "list"] }
+          },
+          {
+            "objectId": "[parameters('azureDevOpsPrincipalId')]",
+            "tenantId": "[subscription().tenantId]",
+            "permissions": { "secrets": ["get", "list", "set", "delete"] }
+          }
+        ]
+      },
+      "dependsOn": ["[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('uaiName'))]"]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[concat(parameters('keyVaultName'), '/POSTGRES-PASSWORD')]",
+      "properties": { "value": "[parameters('POSTGRES_PASSWORD')]" },
+      "dependsOn": ["[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[concat(parameters('keyVaultName'), '/SERVICEBUS-CONNECTION-STRING')]",
+      "properties": { "value": "[parameters('SERVICEBUS_CONNECTION_STRING')]" },
+      "dependsOn": ["[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[concat(parameters('keyVaultName'), '/ACR-PASSWORD')]",
+      "properties": { "value": "[parameters('ACR_PASSWORD')]" },
+      "dependsOn": ["[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[concat(parameters('keyVaultName'), '/TIGERBEETLE-ENDPOINT')]",
+      "properties": { "value": "[parameters('TIGERBEETLE_ENDPOINT')]" },
+      "dependsOn": ["[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[concat(parameters('keyVaultName'), '/TEMPORAL-ENDPOINT')]",
+      "properties": { "value": "[parameters('TEMPORAL_ENDPOINT')]" },
+      "dependsOn": ["[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"]
+    }
+  ],
+  "outputs": {
+    "keyVaultName": { "type": "string", "value": "[parameters('keyVaultName')]" },
+    "keyVaultUri": { "type": "string", "value": "[reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))).vaultUri]" },
+    "userAssignedIdentityId": { "type": "string", "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('uaiName'))]" },
+    "userAssignedIdentityPrincipalId": { "type": "string", "value": "[reference(variables('uaiName')).principalId]" }
+  }
+}

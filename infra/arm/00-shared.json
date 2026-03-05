@@ -1,0 +1,87 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": { "type": "string" },
+    "location": { "type": "string", "defaultValue": "[resourceGroup().location]" },
+    "enableApplicationInsights": { "type": "bool", "defaultValue": true }
+  },
+  "variables": {
+    "tags": {
+      "Environment": "[parameters('environmentName')]",
+      "Project": "money-movement-platform"
+    },
+    "logAnalyticsName": "[concat('law-mm-', parameters('environmentName'))]",
+    "vnetName": "[concat('vnet-mm-', parameters('environmentName'))]",
+    "subnetName": "snet-apps",
+    "appInsightsName": "[concat('appi-mm-', parameters('environmentName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2022-10-01",
+      "name": "[variables('logAnalyticsName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('tags')]",
+      "properties": {
+        "retentionInDays": 7,
+        "sku": { "name": "PerGB2018" }
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('vnetName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('tags')]",
+      "properties": {
+        "addressSpace": { "addressPrefixes": ["10.0.0.0/16"] },
+        "subnets": [
+          {
+            "name": "[variables('subnetName')]",
+            "properties": {
+              "addressPrefix": "10.0.0.0/23"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('appInsightsName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('tags')]",
+      "condition": "[parameters('enableApplicationInsights')]",
+      "properties": {
+        "Application_Type": "web",
+        "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"
+      },
+      "dependsOn": ["[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"]
+    },
+    {
+      "type": "Microsoft.App/managedEnvironments",
+      "apiVersion": "2023-05-01",
+      "name": "[concat('cae-mm-', parameters('environmentName'))]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('tags')]",
+      "properties": {
+        "appLogsConfiguration": {
+          "destination": "log-analytics",
+          "logAnalyticsConfiguration": {
+            "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName')), '2022-10-01').customerId]",
+            "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName')), '2022-10-01').primarySharedKey]"
+          }
+        }
+      },
+      "dependsOn": ["[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"]
+    }
+  ],
+  "outputs": {
+    "logAnalyticsWorkspaceId": { "type": "string", "value": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]" },
+    "containerAppsEnvironmentId": { "type": "string", "value": "[resourceId('Microsoft.App/managedEnvironments', concat('cae-mm-', parameters('environmentName')))]" },
+    "vnetId": { "type": "string", "value": "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]" },
+    "subnetId": { "type": "string", "value": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]" },
+    "appInsightsInstrumentationKey": { "type": "string", "condition": "[parameters('enableApplicationInsights')]", "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').InstrumentationKey]" }
+  }
+}

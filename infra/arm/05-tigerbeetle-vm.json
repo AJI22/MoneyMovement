@@ -1,0 +1,120 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": { "type": "string" },
+    "location": { "type": "string", "defaultValue": "[resourceGroup().location]" },
+    "vnetId": { "type": "string" },
+    "subnetId": { "type": "string" },
+    "vmAdminUsername": { "type": "string", "defaultValue": "azureuser" },
+    "vmAdminPassword": { "type": "secureString" }
+  },
+  "variables": {
+    "vmName": "[concat('vm-tb-', parameters('environmentName'))]",
+    "nsgName": "[concat('nsg-tb-', parameters('environmentName'))]",
+    "nicName": "[concat('nic-tb-', parameters('environmentName'))]",
+    "publicIpName": "[concat('pip-tb-', parameters('environmentName'))]",
+    "cloudInitScript": "[base64(concat('#!/bin/bash\nset -e\napt-get update && apt-get install -y curl\ncd /usr/local/bin\ncurl -fsSL https://github.com/tigerbeetle/tigerbeetle/releases/download/v0.14.7/tigerbeetle-x86_64-linux.tar.gz | tar -xzf -\nmkdir -p /var/lib/tigerbeetle\ntigerbeetle format --cluster=0 --replica=0 /var/lib/tigerbeetle/0_0.tigerbeetle\ncat > /etc/systemd/system/tigerbeetle.service << EOF\n[Unit]\nDescription=TigerBeetle\nAfter=network.target\n[Service]\nType=simple\nExecStart=/usr/local/bin/tigerbeetle start --addresses=0.0.0.0:3000 /var/lib/tigerbeetle/0_0.tigerbeetle\nRestart=always\n[Install]\nWantedBy=multi-user.target\nEOF\nsystemctl daemon-reload\nsystemctl enable tigerbeetle\nsystemctl start tigerbeetle\n'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('nsgName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "AllowTigerBeetle",
+            "properties": {
+              "priority": 100,
+              "direction": "Inbound",
+              "access": "Allow",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "3000",
+              "sourceAddressPrefix": "10.0.0.0/16",
+              "destinationAddressPrefix": "*"
+            }
+          },
+          {
+            "name": "AllowSSH",
+            "properties": {
+              "priority": 110,
+              "direction": "Inbound",
+              "access": "Allow",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "22",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('publicIpName')]",
+      "location": "[parameters('location')]",
+      "properties": { "publicIPAllocationMethod": "Static", "sku": { "name": "Basic" } }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('nicName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "subnet": { "id": "[parameters('subnetId')]" },
+              "privateIPAllocationMethod": "Dynamic",
+              "publicIPAddress": { "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))]" }
+            }
+          }
+        ],
+        "networkSecurityGroup": { "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]" }
+      },
+      "dependsOn": ["[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]", "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))]"]
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('vmName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "hardwareProfile": { "vmSize": "Standard_B1ms" },
+        "osProfile": {
+          "computerName": "[variables('vmName')]",
+          "adminUsername": "[parameters('vmAdminUsername')]",
+          "adminPassword": "[parameters('vmAdminPassword')]",
+          "customData": "[variables('cloudInitScript')]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "Canonical",
+            "offer": "0001-com-ubuntu-server-jammy",
+            "sku": "22_04-lts",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage",
+            "managedDisk": { "storageAccountType": "Standard_LRS" },
+            "diskSizeGB": 30
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [{ "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]" }]
+        }
+      },
+      "dependsOn": ["[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]"]
+    }
+  ],
+  "outputs": {
+    "tigerbeetleVmPrivateIp": { "type": "string", "value": "[reference(variables('nicName')).ipConfigurations[0].properties.privateIPAddress]" },
+    "tigerbeetleEndpoint": { "type": "string", "value": "[concat(reference(variables('publicIpName')).ipAddress, ':3000')]" }
+  }
+}

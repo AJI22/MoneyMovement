@@ -6,8 +6,11 @@
 [Rr]elease/
 x64/
 x86/
-[Aa][Rr][Mm]/
-[Aa][Rr][Mm]64/
+# .NET build output (ARM/Arm64); do not ignore infra/arm (Azure ARM templates)
+**/bin/**/[Aa][Rr][Mm]/
+**/obj/**/[Aa][Rr][Mm]/
+**/bin/**/[Aa][Rr][Mm]64/
+**/obj/**/[Aa][Rr][Mm]64/
 bld/
 [Bb]uild/
 [Ll]og/

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": { "value": "dev" },
+    "location": { "value": "eastus" },
+    "POSTGRES_ADMIN": { "value": "pgadmin" },
+    "POSTGRES_PASSWORD": { "value": "PLACEHOLDER_CHANGE_ME_Strong_Password!" },
+    "DATABASE_NAME": { "value": "ledger" },
+    "serviceBusNamespaceName": { "value": "mmplatformdev" },
+    "keyVaultName": { "value": "kv-mm-dev-placeholder" },
+    "azureDevOpsPrincipalId": { "value": "00000000-0000-0000-0000-000000000000" },
+    "SERVICEBUS_CONNECTION_STRING": { "value": "PLACEHOLDER_Endpoint=sb://mmplatformdev.servicebus.windows.net/;SharedAccessKeyName=placeholder;SharedAccessKey=placeholder" },
+    "ACR_PASSWORD": { "value": "PLACEHOLDER_CHANGE_ME" },
+    "TIGERBEETLE_ENDPOINT": { "value": "PLACEHOLDER_10.0.0.4:3000" },
+    "TEMPORAL_ENDPOINT": { "value": "PLACEHOLDER_temporal-server:7233" },
+    "vmAdminUsername": { "value": "azureuser" },
+    "vmAdminPassword": { "value": "PLACEHOLDER_VM_Password!" },
+    "acrLoginServer": { "value": "PLACEHOLDER_myregistry.azurecr.io" },
+    "acrImageTag": { "value": "latest" }
+  }
+}

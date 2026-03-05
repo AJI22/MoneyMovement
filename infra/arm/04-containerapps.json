@@ -1,0 +1,263 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": { "type": "string" },
+    "location": { "type": "string", "defaultValue": "[resourceGroup().location]" },
+    "containerAppsEnvironmentId": { "type": "string" },
+    "keyVaultUri": { "type": "string" },
+    "userAssignedIdentityId": { "type": "string" },
+    "acrLoginServer": { "type": "string" },
+    "acrImageTag": { "type": "string", "defaultValue": "latest" },
+    "postgresFqdn": { "type": "string" },
+    "postgresAdmin": { "type": "string" },
+    "postgresPassword": { "type": "secureString" },
+    "tigerbeetleEndpoint": { "type": "string" }
+  },
+  "variables": {
+    "env": "[parameters('environmentName')]",
+    "connLedger": "[concat('Host=', parameters('postgresFqdn'), ';Database=ledger;Username=', parameters('postgresAdmin'), ';Password=', parameters('postgresPassword'), ';Ssl Mode=Require')]",
+    "connRailsNg": "[concat('Host=', parameters('postgresFqdn'), ';Database=rails_ng;Username=', parameters('postgresAdmin'), ';Password=', parameters('postgresPassword'), ';Ssl Mode=Require')]",
+    "connRailsUs": "[concat('Host=', parameters('postgresFqdn'), ';Database=rails_us;Username=', parameters('postgresAdmin'), ';Password=', parameters('postgresPassword'), ';Ssl Mode=Require')]",
+    "connFx": "[concat('Host=', parameters('postgresFqdn'), ';Database=fx;Username=', parameters('postgresAdmin'), ';Password=', parameters('postgresPassword'), ';Ssl Mode=Require')]",
+    "connOrch": "[concat('Host=', parameters('postgresFqdn'), ';Database=orchestrator;Username=', parameters('postgresAdmin'), ';Password=', parameters('postgresPassword'), ';Ssl Mode=Require')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2023-05-01",
+      "name": "[concat('ca-ledger-', variables('env'))]",
+      "location": "[parameters('location')]",
+      "identity": { "type": "UserAssigned", "userAssignedIdentities": { "[parameters('userAssignedIdentityId')]": {} } },
+      "properties": {
+        "managedEnvironmentId": "[parameters('containerAppsEnvironmentId')]",
+        "configuration": {
+          "ingress": { "external": false, "targetPort": 8080, "transport": "http", "allowInsecure": false }
+        },
+        "template": {
+          "containers": [{
+            "name": "ledger-service",
+            "image": "[concat(parameters('acrLoginServer'), '/ledger-service:', parameters('acrImageTag'))]",
+            "resources": { "cpu": 0.25, "memory": "0.5Gi" },
+            "livenessProbe": { "httpGet": { "path": "/healthz", "port": 8080 }, "initialDelaySeconds": 10, "periodSeconds": 10 },
+            "readinessProbe": { "httpGet": { "path": "/readyz", "port": 8080 }, "initialDelaySeconds": 5, "periodSeconds": 5 },
+            "env": [
+              { "name": "ConnectionStrings__Default", "value": "[variables('connLedger')]" },
+              { "name": "TigerBeetle__Address", "value": "[parameters('tigerbeetleEndpoint')]" },
+              { "name": "ASPNETCORE_URLS", "value": "http://+:8080" }
+            ]
+          }],
+          "scale": { "minReplicas": 0, "maxReplicas": 2 }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2023-05-01",
+      "name": "[concat('ca-rails-ng-', variables('env'))]",
+      "location": "[parameters('location')]",
+      "identity": { "type": "UserAssigned", "userAssignedIdentities": { "[parameters('userAssignedIdentityId')]": {} } },
+      "properties": {
+        "managedEnvironmentId": "[parameters('containerAppsEnvironmentId')]",
+        "configuration": {
+          "ingress": { "external": false, "targetPort": 8080, "transport": "http" }
+        },
+        "template": {
+          "containers": [{
+            "name": "rails-nigeria",
+            "image": "[concat(parameters('acrLoginServer'), '/rails-nigeria:', parameters('acrImageTag'))]",
+            "resources": { "cpu": 0.25, "memory": "0.5Gi" },
+            "livenessProbe": { "httpGet": { "path": "/healthz", "port": 8080 }, "initialDelaySeconds": 10 },
+            "env": [
+              { "name": "ConnectionStrings__Default", "value": "[variables('connRailsNg')]" },
+              { "name": "LedgerService__BaseUrl", "value": "[concat('https://ca-ledger-', parameters('environmentName'), '.azurecontainerapps.io/')]" },
+              { "name": "ASPNETCORE_URLS", "value": "http://+:8080" }
+            ]
+          }],
+          "scale": { "minReplicas": 0, "maxReplicas": 2 }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2023-05-01",
+      "name": "[concat('ca-rails-us-', variables('env'))]",
+      "location": "[parameters('location')]",
+      "identity": { "type": "UserAssigned", "userAssignedIdentities": { "[parameters('userAssignedIdentityId')]": {} } },
+      "properties": {
+        "managedEnvironmentId": "[parameters('containerAppsEnvironmentId')]",
+        "configuration": {
+          "ingress": { "external": false, "targetPort": 8080, "transport": "http" }
+        },
+        "template": {
+          "containers": [{
+            "name": "rails-unitedstates",
+            "image": "[concat(parameters('acrLoginServer'), '/rails-unitedstates:', parameters('acrImageTag'))]",
+            "resources": { "cpu": 0.25, "memory": "0.5Gi" },
+            "livenessProbe": { "httpGet": { "path": "/healthz", "port": 8080 }, "initialDelaySeconds": 10 },
+            "env": [
+              { "name": "ConnectionStrings__Default", "value": "[variables('connRailsUs')]" },
+              { "name": "LedgerService__BaseUrl", "value": "[concat('https://ca-ledger-', parameters('environmentName'), '.azurecontainerapps.io/')]" },
+              { "name": "ASPNETCORE_URLS", "value": "http://+:8080" }
+            ]
+          }],
+          "scale": { "minReplicas": 0, "maxReplicas": 2 }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2023-05-01",
+      "name": "[concat('ca-fx-', variables('env'))]",
+      "location": "[parameters('location')]",
+      "identity": { "type": "UserAssigned", "userAssignedIdentities": { "[parameters('userAssignedIdentityId')]": {} } },
+      "properties": {
+        "managedEnvironmentId": "[parameters('containerAppsEnvironmentId')]",
+        "configuration": {
+          "ingress": { "external": false, "targetPort": 8080, "transport": "http" }
+        },
+        "template": {
+          "containers": [{
+            "name": "fx-service",
+            "image": "[concat(parameters('acrLoginServer'), '/fx-service:', parameters('acrImageTag'))]",
+            "resources": { "cpu": 0.25, "memory": "0.5Gi" },
+            "livenessProbe": { "httpGet": { "path": "/healthz", "port": 8080 }, "initialDelaySeconds": 10 },
+            "env": [
+              { "name": "ConnectionStrings__Default", "value": "[variables('connFx')]" },
+              { "name": "LedgerService__BaseUrl", "value": "[concat('https://ca-ledger-', parameters('environmentName'), '.azurecontainerapps.io/')]" },
+              { "name": "ASPNETCORE_URLS", "value": "http://+:8080" }
+            ]
+          }],
+          "scale": { "minReplicas": 0, "maxReplicas": 2 }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2023-05-01",
+      "name": "[concat('ca-orchestrator-', variables('env'))]",
+      "location": "[parameters('location')]",
+      "identity": { "type": "UserAssigned", "userAssignedIdentities": { "[parameters('userAssignedIdentityId')]": {} } },
+      "properties": {
+        "managedEnvironmentId": "[parameters('containerAppsEnvironmentId')]",
+        "configuration": {
+          "ingress": { "external": true, "targetPort": 8080, "transport": "http" }
+        },
+        "template": {
+          "containers": [{
+            "name": "transfer-orchestrator",
+            "image": "[concat(parameters('acrLoginServer'), '/transfer-orchestrator:', parameters('acrImageTag'))]",
+            "resources": { "cpu": 0.25, "memory": "0.5Gi" },
+            "livenessProbe": { "httpGet": { "path": "/healthz", "port": 8080 }, "initialDelaySeconds": 10 },
+            "env": [
+              { "name": "ConnectionStrings__Default", "value": "[variables('connOrch')]" },
+              { "name": "RailsNigeria__BaseUrl", "value": "[concat('https://ca-rails-ng-', parameters('environmentName'), '.azurecontainerapps.io/')]" },
+              { "name": "RailsUnitedStates__BaseUrl", "value": "[concat('https://ca-rails-us-', parameters('environmentName'), '.azurecontainerapps.io/')]" },
+              { "name": "FX__BaseUrl", "value": "[concat('https://ca-fx-', parameters('environmentName'), '.azurecontainerapps.io/')]" },
+              { "name": "Ledger__BaseUrl", "value": "[concat('https://ca-ledger-', parameters('environmentName'), '.azurecontainerapps.io/')]" },
+              { "name": "ASPNETCORE_URLS", "value": "http://+:8080" }
+            ]
+          }],
+          "scale": { "minReplicas": 0, "maxReplicas": 2 }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2023-05-01",
+      "name": "[concat('ca-reconciliation-', variables('env'))]",
+      "location": "[parameters('location')]",
+      "identity": { "type": "UserAssigned", "userAssignedIdentities": { "[parameters('userAssignedIdentityId')]": {} } },
+      "properties": {
+        "managedEnvironmentId": "[parameters('containerAppsEnvironmentId')]",
+        "configuration": {},
+        "template": {
+          "containers": [{
+            "name": "reconciliation-worker",
+            "image": "[concat(parameters('acrLoginServer'), '/reconciliation-worker:', parameters('acrImageTag'))]",
+            "resources": { "cpu": 0.25, "memory": "0.5Gi" },
+            "env": [
+              { "name": "LedgerService__BaseUrl", "value": "[concat('https://ca-ledger-', parameters('environmentName'), '.azurecontainerapps.io/')]" }
+            ]
+          }],
+          "scale": { "minReplicas": 0, "maxReplicas": 1 }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2023-05-01",
+      "name": "[concat('ca-treasury-', variables('env'))]",
+      "location": "[parameters('location')]",
+      "identity": { "type": "UserAssigned", "userAssignedIdentities": { "[parameters('userAssignedIdentityId')]": {} } },
+      "properties": {
+        "managedEnvironmentId": "[parameters('containerAppsEnvironmentId')]",
+        "configuration": {},
+        "template": {
+          "containers": [{
+            "name": "treasury-worker",
+            "image": "[concat(parameters('acrLoginServer'), '/treasury-worker:', parameters('acrImageTag'))]",
+            "resources": { "cpu": 0.25, "memory": "0.5Gi" },
+            "env": [
+              { "name": "LedgerService__BaseUrl", "value": "[concat('https://ca-ledger-', parameters('environmentName'), '.azurecontainerapps.io/')]" }
+            ]
+          }],
+          "scale": { "minReplicas": 0, "maxReplicas": 1 }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2023-05-01",
+      "name": "[concat('ca-temporal-', variables('env'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "managedEnvironmentId": "[parameters('containerAppsEnvironmentId')]",
+        "configuration": {
+          "ingress": { "external": false, "targetPort": 7233, "transport": "tcp" }
+        },
+        "template": {
+          "containers": [{
+            "name": "temporal-server",
+            "image": "temporalio/auto-setup:1.22.0",
+            "resources": { "cpu": 0.25, "memory": "0.5Gi" },
+            "env": [
+              { "name": "DB", "value": "postgresql" },
+              { "name": "DB_PORT", "value": "5432" },
+              { "name": "POSTGRES_USER", "value": "[parameters('postgresAdmin')]" },
+              { "name": "POSTGRES_SEEDS", "value": "[parameters('postgresFqdn')]" },
+              { "name": "POSTGRES_PWD", "value": "[parameters('postgresPassword')]" }
+            ]
+          }],
+          "scale": { "minReplicas": 1, "maxReplicas": 1 }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.App/containerApps",
+      "apiVersion": "2023-05-01",
+      "name": "[concat('ca-temporal-ui-', variables('env'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "managedEnvironmentId": "[parameters('containerAppsEnvironmentId')]",
+        "configuration": {
+          "ingress": { "external": false, "targetPort": 8080, "transport": "http" }
+        },
+        "template": {
+          "containers": [{
+            "name": "temporal-ui",
+            "image": "temporalio/ui:2.22.0",
+            "resources": { "cpu": 0.25, "memory": "0.5Gi" },
+            "env": [
+              { "name": "TEMPORAL_ADDRESS", "value": "[concat('ca-temporal-', parameters('environmentName'), '.azurecontainerapps.io:7233')]" }
+            ]
+          }],
+          "scale": { "minReplicas": 0, "maxReplicas": 1 }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "orchestratorFqdn": { "type": "string", "value": "[reference(resourceId('Microsoft.App/containerApps', concat('ca-orchestrator-', variables('env')))).properties.configuration.ingress.fqdn]" }
+  }
+}
