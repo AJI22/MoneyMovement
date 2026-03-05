@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>MoneyMovement.Contracts</PackageId>
+    <Version>1.0.0</Version>
+    <Description>Shared DTOs, events, and types for Money Movement Platform</Description>
+  </PropertyGroup>
+</Project>

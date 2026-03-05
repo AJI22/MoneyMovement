@@ -1,0 +1,184 @@
+# Deploy infrastructure ARM templates in order
+trigger: none
+pr: none
+pool:
+  vmImage: 'ubuntu-latest'
+
+parameters:
+  - name: subscriptionId
+    displayName: 'Azure subscription ID'
+    type: string
+    default: 'PLACEHOLDER_SUBSCRIPTION_ID'
+  - name: resourceGroup
+    displayName: 'Resource group name'
+    type: string
+    default: 'rg-money-movement-poc'
+  - name: location
+    displayName: 'Azure region'
+    type: string
+    default: 'eastus'
+
+variables:
+  armPath: '$(Build.SourcesDirectory)/infra/arm'
+  paramsFile: '$(Build.SourcesDirectory)/infra/arm/parameters.dev.json'
+
+stages:
+  - stage: DeployInfra
+    displayName: 'Deploy ARM Templates'
+    jobs:
+      - deployment: DeployShared
+        displayName: '00-shared'
+        environment: 'infra'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: 'Deploy 00-shared'
+                  inputs:
+                    azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      az deployment group create \
+                        --name 00-shared \
+                        --resource-group ${{ parameters.resourceGroup }} \
+                        --template-file $(armPath)/00-shared.json \
+                        --parameters $(paramsFile) \
+                        --output none
+      - deployment: DeployData
+        displayName: '01-data'
+        dependsOn: DeployShared
+        environment: 'infra'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: 'Deploy 01-data'
+                  inputs:
+                    azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      az deployment group create \
+                        --name 01-data \
+                        --resource-group ${{ parameters.resourceGroup }} \
+                        --template-file $(armPath)/01-data.json \
+                        --parameters $(paramsFile) \
+                        --output none
+      - deployment: DeployServiceBus
+        displayName: '02-servicebus'
+        dependsOn: DeployData
+        environment: 'infra'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: 'Deploy 02-servicebus'
+                  inputs:
+                    azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      az deployment group create \
+                        --name 02-servicebus \
+                        --resource-group ${{ parameters.resourceGroup }} \
+                        --template-file $(armPath)/02-servicebus.json \
+                        --parameters $(paramsFile) \
+                        --output none
+      - deployment: DeployKeyVault
+        displayName: '03-keyvault'
+        dependsOn: DeployServiceBus
+        environment: 'infra'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: 'Deploy 03-keyvault'
+                  inputs:
+                    azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      az deployment group create \
+                        --name 03-keyvault \
+                        --resource-group ${{ parameters.resourceGroup }} \
+                        --template-file $(armPath)/03-keyvault.json \
+                        --parameters $(paramsFile) \
+                        --output none
+      - deployment: DeployTigerBeetle
+        displayName: '05-tigerbeetle-vm'
+        dependsOn: DeployKeyVault
+        environment: 'infra'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: 'Get subnet ID'
+                  name: GetOutputs
+                  inputs:
+                    azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      OUT=$(az deployment group show \
+                        --resource-group ${{ parameters.resourceGroup }} \
+                        --name 00-shared \
+                        --query properties.outputs 2>/dev/null || true)
+                      echo "##vso[task.setvariable variable=subnetId;isOutput=true]$OUT"
+                - task: AzureCLI@2
+                  displayName: 'Deploy 05-tigerbeetle-vm'
+                  inputs:
+                    azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      SUBNET_ID=$(az deployment group show \
+                        --resource-group ${{ parameters.resourceGroup }} \
+                        --name 00-shared \
+                        --query "properties.outputs.subnetId.value" -o tsv)
+                      VNET_ID=$(az deployment group show \
+                        --resource-group ${{ parameters.resourceGroup }} \
+                        --name 00-shared \
+                        --query "properties.outputs.vnetId.value" -o tsv)
+                      az deployment group create \
+                        --name 05-tigerbeetle-vm \
+                        --resource-group ${{ parameters.resourceGroup }} \
+                        --template-file $(armPath)/05-tigerbeetle-vm.json \
+                        --parameters $(paramsFile) \
+                        --parameters vnetId=$VNET_ID subnetId=$SUBNET_ID \
+                        --output none
+      - deployment: DeployContainerApps
+        displayName: '04-containerapps'
+        dependsOn: DeployTigerBeetle
+        environment: 'infra'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: 'Deploy 04-containerapps'
+                  inputs:
+                    azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      CAE_ID=$(az deployment group show --resource-group ${{ parameters.resourceGroup }} --name 00-shared --query "properties.outputs.containerAppsEnvironmentId.value" -o tsv)
+                      KV_URI=$(az deployment group show --resource-group ${{ parameters.resourceGroup }} --name 03-keyvault --query "properties.outputs.keyVaultUri.value" -o tsv)
+                      UAI_ID=$(az deployment group show --resource-group ${{ parameters.resourceGroup }} --name 03-keyvault --query "properties.outputs.userAssignedIdentityId.value" -o tsv)
+                      PG_FQDN=$(az deployment group show --resource-group ${{ parameters.resourceGroup }} --name 01-data --query "properties.outputs.postgresFqdn.value" -o tsv)
+                      TB_EP=$(az deployment group show --resource-group ${{ parameters.resourceGroup }} --name 05-tigerbeetle-vm --query "properties.outputs.tigerbeetleEndpoint.value" -o tsv)
+                      KV_NAME=$(az deployment group show --resource-group ${{ parameters.resourceGroup }} --name 03-keyvault --query "properties.outputs.keyVaultName.value" -o tsv)
+                      PG_PWD=$(az keyvault secret show --vault-name $KV_NAME --name POSTGRES-PASSWORD --query value -o tsv 2>/dev/null || echo "PLACEHOLDER")
+                      az deployment group create \
+                        --name 04-containerapps \
+                        --resource-group ${{ parameters.resourceGroup }} \
+                        --template-file $(armPath)/04-containerapps.json \
+                        --parameters $(paramsFile) \
+                        --parameters containerAppsEnvironmentId="$CAE_ID" keyVaultUri="$KV_URI" userAssignedIdentityId="$UAI_ID" \
+                        postgresFqdn="$PG_FQDN" tigerbeetleEndpoint="$TB_EP" postgresPassword="$PG_PWD" \
+                        --output none

@@ -1,0 +1,93 @@
+# Build outputs
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]uild/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio
+.vs/
+*.user
+*.userosscache
+*.suo
+*.userprefs
+*.sln.docstates
+
+# Rider
+.idea/
+*.sln.iml
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# NuGet
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# .NET
+*.dll
+*.exe
+*.pdb
+*.cache
+*.log
+TestResults/
+[Tt]est[Rr]esult*/
+[Cc]overage/
+*.VisualState.xml
+*.coverage
+*.coveragexml
+
+# User-specific and secrets
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+appsettings.*.local.json
+appsettings.Development.local.json
+*.env
+.env
+.env.*
+!.env.example
+secrets/
+*.pfx
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Docker
+.docker/
+
+# Azure / infra (optional; uncomment if you want to ignore local state)
+# *.tfstate
+# *.tfstate.*
+# .terraform/
+# infra/scripts/*.env
+
+# Misc
+*.bak
+*.tmp
+*.temp
+*~
+.cache/

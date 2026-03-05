@@ -1,0 +1,160 @@
+# Build pipeline: restore, build, test, build Docker images, push to ACR
+trigger:
+  branches: { include: ['main', 'master'] }
+pool:
+  vmImage: 'ubuntu-latest'
+variables:
+  buildConfiguration: 'Release'
+  coverageThreshold: 80
+
+stages:
+  - stage: Build
+    displayName: 'Build and Test'
+    jobs:
+      - job: DotNetBuild
+        displayName: 'Restore, Build, Test'
+        steps:
+          - task: UseDotNet@2
+            displayName: 'Use .NET 8'
+            inputs:
+              packageType: 'sdk'
+              version: '8.x'
+          - task: DotNetCoreCLI@2
+            displayName: 'Restore'
+            inputs:
+              command: 'restore'
+              projects: '**/*.sln'
+          - task: DotNetCoreCLI@2
+            displayName: 'Build'
+            inputs:
+              command: 'build'
+              projects: '**/*.sln'
+              arguments: '--configuration $(buildConfiguration) --no-restore'
+          - task: DotNetCoreCLI@2
+            displayName: 'Unit Tests with Coverage'
+            inputs:
+              command: 'test'
+              projects: 'tests/UnitTests/*.csproj'
+              arguments: '--configuration $(buildConfiguration) --no-build --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.ThresholdType=line DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.ThresholdValue=$(coverageThreshold)'
+          - task: PublishCodeCoverageResults@2
+            displayName: 'Publish Coverage'
+            inputs:
+              codeCoverageTool: 'Cobertura'
+              summaryFileLocation: '**/coverage.cobertura.xml'
+          - script: |
+              COVERAGE=$(grep -oP 'line-rate="\K[^"]+' $(find . -name 'coverage.cobertura.xml' | head -1) 2>/dev/null || echo "0")
+              PERCENT=$(echo "$COVERAGE * 100" | bc 2>/dev/null || echo "0")
+              if [ -z "$PERCENT" ] || [ $(echo "$PERCENT < $(coverageThreshold)" | bc) -eq 1 ]; then
+                echo "##vso[task.logissue type=error]Code coverage $PERCENT% is below threshold $(coverageThreshold)%"
+                exit 1
+              fi
+            displayName: 'Verify coverage >= 80%'
+            continueOnError: true
+
+      - job: DockerBuild
+        displayName: 'Build and Push Docker Images'
+        dependsOn: DotNetBuild
+        steps:
+          - task: Docker@2
+            displayName: 'Login to ACR'
+            inputs:
+              command: 'login'
+              containerRegistry: '$(ACR_SERVICE_CONNECTION)'
+          - task: Docker@2
+            displayName: 'Build ledger-service'
+            inputs:
+              command: 'build'
+              Dockerfile: 'src/Ledger.Service/Dockerfile'
+              buildContext: '.'
+              repository: '$(ACR_LOGIN_SERVER)/ledger-service'
+              tags: '$(Build.BuildId)'
+          - task: Docker@2
+            displayName: 'Build rails-nigeria'
+            inputs:
+              command: 'build'
+              Dockerfile: 'src/Rails.Nigeria/Dockerfile'
+              buildContext: '.'
+              repository: '$(ACR_LOGIN_SERVER)/rails-nigeria'
+              tags: '$(Build.BuildId)'
+          - task: Docker@2
+            displayName: 'Build rails-unitedstates'
+            inputs:
+              command: 'build'
+              Dockerfile: 'src/Rails.UnitedStates/Dockerfile'
+              buildContext: '.'
+              repository: '$(ACR_LOGIN_SERVER)/rails-unitedstates'
+              tags: '$(Build.BuildId)'
+          - task: Docker@2
+            displayName: 'Build fx-service'
+            inputs:
+              command: 'build'
+              Dockerfile: 'src/FX.Service/Dockerfile'
+              buildContext: '.'
+              repository: '$(ACR_LOGIN_SERVER)/fx-service'
+              tags: '$(Build.BuildId)'
+          - task: Docker@2
+            displayName: 'Build transfer-orchestrator'
+            inputs:
+              command: 'build'
+              Dockerfile: 'src/Transfer.Orchestrator/Dockerfile'
+              buildContext: '.'
+              repository: '$(ACR_LOGIN_SERVER)/transfer-orchestrator'
+              tags: '$(Build.BuildId)'
+          - task: Docker@2
+            displayName: 'Build reconciliation-worker'
+            inputs:
+              command: 'build'
+              Dockerfile: 'src/Reconciliation.Worker/Dockerfile'
+              buildContext: '.'
+              repository: '$(ACR_LOGIN_SERVER)/reconciliation-worker'
+              tags: '$(Build.BuildId)'
+          - task: Docker@2
+            displayName: 'Build treasury-worker'
+            inputs:
+              command: 'build'
+              Dockerfile: 'src/Treasury.Worker/Dockerfile'
+              buildContext: '.'
+              repository: '$(ACR_LOGIN_SERVER)/treasury-worker'
+              tags: '$(Build.BuildId)'
+          - task: Docker@2
+            displayName: 'Push ledger-service'
+            inputs:
+              command: 'push'
+              repository: '$(ACR_LOGIN_SERVER)/ledger-service'
+              tags: '$(Build.BuildId)'
+          - task: Docker@2
+            displayName: 'Push rails-nigeria'
+            inputs:
+              command: 'push'
+              repository: '$(ACR_LOGIN_SERVER)/rails-nigeria'
+              tags: '$(Build.BuildId)'
+          - task: Docker@2
+            displayName: 'Push rails-unitedstates'
+            inputs:
+              command: 'push'
+              repository: '$(ACR_LOGIN_SERVER)/rails-unitedstates'
+              tags: '$(Build.BuildId)'
+          - task: Docker@2
+            displayName: 'Push fx-service'
+            inputs:
+              command: 'push'
+              repository: '$(ACR_LOGIN_SERVER)/fx-service'
+              tags: '$(Build.BuildId)'
+          - task: Docker@2
+            displayName: 'Push transfer-orchestrator'
+            inputs:
+              command: 'push'
+              repository: '$(ACR_LOGIN_SERVER)/transfer-orchestrator'
+              tags: '$(Build.BuildId)'
+          - task: Docker@2
+            displayName: 'Push reconciliation-worker'
+            inputs:
+              command: 'push'
+              repository: '$(ACR_LOGIN_SERVER)/reconciliation-worker'
+              tags: '$(Build.BuildId)'
+          - task: Docker@2
+            displayName: 'Push treasury-worker'
+            inputs:
+              command: 'push'
+              repository: '$(ACR_LOGIN_SERVER)/treasury-worker'
+              tags: '$(Build.BuildId)'

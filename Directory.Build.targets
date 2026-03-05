@@ -1,0 +1,5 @@
+<Project>
+  <Target Name="CoverageReport" AfterTargets="Test" Condition="'$(CollectCoverage)' == 'true'">
+    <Exec Command="reportgenerator -reports:$(MSBuildProjectDirectory)\**\coverage.cobertura.xml -targetdir:$(MSBuildProjectDirectory)\..\..\tests\coverage-report -reporttypes:Html" IgnoreExitCode="true" Condition="Exists('$(MSBuildProjectDirectory)\..\..\packages\reportgenerator\tools\net8.0\reportgenerator.dll')" />
+  </Target>
+</Project>

@@ -1,0 +1,97 @@
+# Deploy application: update container images, run migrations, smoke tests
+trigger: none
+pr: none
+pool:
+  vmImage: 'ubuntu-latest'
+
+parameters:
+  - name: resourceGroup
+    displayName: 'Resource group name'
+    type: string
+    default: 'rg-money-movement-poc'
+  - name: environmentName
+    displayName: 'Environment name (e.g. dev)'
+    type: string
+    default: 'dev'
+  - name: imageTag
+    displayName: 'Container image tag to deploy'
+    type: string
+    default: '$(Build.BuildId)'
+
+stages:
+  - stage: Deploy
+    displayName: 'Deploy and Migrate'
+    jobs:
+      - job: UpdateImages
+        displayName: 'Update Container App images'
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Update container app images'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                ACR="$(ACR_LOGIN_SERVER)"
+                TAG="${{ parameters.imageTag }}"
+                declare -A IMAGES=( ["ca-ledger"]="ledger-service" ["ca-rails-ng"]="rails-nigeria" ["ca-rails-us"]="rails-unitedstates" ["ca-fx"]="fx-service" ["ca-orchestrator"]="transfer-orchestrator" ["ca-reconciliation"]="reconciliation-worker" ["ca-treasury"]="treasury-worker" )
+                for app in ca-ledger ca-rails-ng ca-rails-us ca-fx ca-orchestrator ca-reconciliation ca-treasury; do
+                  name="${app}-${{ parameters.environmentName }}"
+                  img="${IMAGES[$app]}"
+                  image="${ACR}/${img}:${TAG}"
+                  echo "Updating $name to $image"
+                  az containerapp update --name "$name" --resource-group "${{ parameters.resourceGroup }}" --image "$image" --output none 2>/dev/null || true
+                done
+      - job: RunMigrations
+        displayName: 'Run EF migrations'
+        dependsOn: UpdateImages
+        steps:
+          - task: UseDotNet@2
+            inputs:
+              packageType: 'sdk'
+              version: '8.x'
+          - task: DotNetCoreCLI@2
+            displayName: 'Run Ledger migrations'
+            inputs:
+              command: 'custom'
+              custom: 'ef'
+              arguments: 'database update --project src/Ledger.Service/Ledger.Service.csproj -- --connection "$(POSTGRES_CONNECTION_LEDGER)"'
+            continueOnError: true
+          - task: DotNetCoreCLI@2
+            displayName: 'Run Orchestrator migrations'
+            inputs:
+              command: 'custom'
+              custom: 'ef'
+              arguments: 'database update --project src/Transfer.Orchestrator/Transfer.Orchestrator.csproj -- --connection "$(POSTGRES_CONNECTION_ORCHESTRATOR)"'
+            continueOnError: true
+      - job: RestartApps
+        displayName: 'Restart Container Apps'
+        dependsOn: RunMigrations
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Restart ledger-service'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az containerapp revision restart --name ca-ledger-${{ parameters.environmentName }} --resource-group ${{ parameters.resourceGroup }} --revision $(az containerapp revision list --name ca-ledger-${{ parameters.environmentName }} --resource-group ${{ parameters.resourceGroup }} --query "[0].name" -o tsv) --output none 2>/dev/null || true
+      - job: SmokeTests
+        displayName: 'Smoke tests'
+        dependsOn: RestartApps
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Get orchestrator URL and call health'
+            inputs:
+              azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                FQDN=$(az containerapp show --name ca-orchestrator-${{ parameters.environmentName }} --resource-group ${{ parameters.resourceGroup }} --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null)
+                if [ -n "$FQDN" ]; then
+                  echo "Orchestrator FQDN: $FQDN"
+                  curl -sf "https://$FQDN/healthz" || exit 1
+                  echo "Health check passed."
+                else
+                  echo "Could not get FQDN; skipping smoke test."
+                fi

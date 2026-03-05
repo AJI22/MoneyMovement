@@ -1,0 +1,98 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  tigerbeetle:
+    image: ghcr.io/tigerbeetle/tigerbeetle:latest
+    command: start --addresses=0.0.0.0:3000
+    ports:
+      - "3000:3000"
+
+  ledger-service:
+    build:
+      context: .
+      dockerfile: src/Ledger.Service/Dockerfile
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Database=ledger;Username=postgres;Password=postgres"
+      TigerBeetle__Address: "tigerbeetle:3000"
+      ASPNETCORE_URLS: "http://0.0.0.0:8080"
+    ports:
+      - "5080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      tigerbeetle:
+        condition: service_started
+
+  rails-nigeria:
+    build:
+      context: .
+      dockerfile: src/Rails.Nigeria/Dockerfile
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Database=rails_ng;Username=postgres;Password=postgres"
+      LedgerService__BaseUrl: "http://ledger-service:8080/"
+      ASPNETCORE_URLS: "http://0.0.0.0:8080"
+    ports:
+      - "5081:8080"
+    depends_on:
+      - postgres
+      - ledger-service
+
+  rails-unitedstates:
+    build:
+      context: .
+      dockerfile: src/Rails.UnitedStates/Dockerfile
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Database=rails_us;Username=postgres;Password=postgres"
+      LedgerService__BaseUrl: "http://ledger-service:8080/"
+      ASPNETCORE_URLS: "http://0.0.0.0:8080"
+    ports:
+      - "5082:8080"
+    depends_on:
+      - postgres
+      - ledger-service
+
+  fx-service:
+    build:
+      context: .
+      dockerfile: src/FX.Service/Dockerfile
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Database=fx;Username=postgres;Password=postgres"
+      LedgerService__BaseUrl: "http://ledger-service:8080/"
+      ASPNETCORE_URLS: "http://0.0.0.0:8080"
+    ports:
+      - "5083:8080"
+    depends_on:
+      - postgres
+      - ledger-service
+
+  transfer-orchestrator:
+    build:
+      context: .
+      dockerfile: src/Transfer.Orchestrator/Dockerfile
+    environment:
+      ConnectionStrings__Default: "Host=postgres;Database=orchestrator;Username=postgres;Password=postgres"
+      RailsNigeria__BaseUrl: "http://rails-nigeria:8080/"
+      RailsUnitedStates__BaseUrl: "http://rails-unitedstates:8080/"
+      FX__BaseUrl: "http://fx-service:8080/"
+      Ledger__BaseUrl: "http://ledger-service:8080/"
+      ASPNETCORE_URLS: "http://0.0.0.0:8080"
+    ports:
+      - "5084:8080"
+    depends_on:
+      - postgres
+      - ledger-service
+      - rails-nigeria
+      - rails-unitedstates
+      - fx-service

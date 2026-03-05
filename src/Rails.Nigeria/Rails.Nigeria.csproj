@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <AssemblyName>Rails.Nigeria</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\BuildingBlocks\Contracts\Contracts.csproj" />
+    <ProjectReference Include="..\BuildingBlocks\Http\Http.csproj" />
+    <ProjectReference Include="..\BuildingBlocks\Observability\Observability.csproj" />
+    <ProjectReference Include="..\BuildingBlocks\Outbox\Outbox.csproj" />
+  </ItemGroup>
+</Project>
